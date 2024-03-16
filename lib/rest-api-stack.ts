@@ -1,15 +1,19 @@
+import * as node from "aws-cdk-lib/aws-lambda-nodejs";
 import * as cdk from "aws-cdk-lib";
 import * as lambdanode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as custom from "aws-cdk-lib/custom-resources";
-import * as apig from "aws-cdk-lib/aws-apigateway";
+import { aws_dynamodb, aws_iam } from 'aws-cdk-lib';
 import { Construct } from "constructs";
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { generateBatch } from "../shared/util";
-import { movies, movieCasts } from "../seed/movies";
+import { movies, movieCasts, movieReview } from "../seed/movies";
+import * as apig from "aws-cdk-lib/aws-apigateway";
 
 export class RestAPIStack extends cdk.Stack {
+  public readonly movieReviewTable: dynamodb.Table;
+
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
@@ -34,6 +38,18 @@ export class RestAPIStack extends cdk.Stack {
       sortKey: { name: "roleName", type: dynamodb.AttributeType.STRING },
     });
 
+    const movieReviewTable = new dynamodb.Table(this, "MovieReviewTable", {
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "reviewDate", type: dynamodb.AttributeType.STRING },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      tableName: "MovieReview",
+    });
+
+    movieReviewTable.addLocalSecondaryIndex({
+      indexName: "roleIx",
+      sortKey: { name: "reviewerName", type: dynamodb.AttributeType.STRING },
+    });
 
     // Functions 
     const getMovieByIdFn = new lambdanode.NodejsFunction(
@@ -92,14 +108,32 @@ export class RestAPIStack extends cdk.Stack {
         parameters: {
           RequestItems: {
             [moviesTable.tableName]: generateBatch(movies),
-            [movieCastsTable.tableName]: generateBatch(movieCasts),  // Added
+            [movieCastsTable.tableName]: generateBatch(movieCasts),  
+            [movieReviewTable.tableName]: movieReview.map(review => ({
+              PutRequest: {
+                Item: {
+                  movieId: { N: review.movieId.toString() },
+                  reviewDate: { S: review.reviewDate },
+                  reviewerName: { S: review.reviewerName },
+                  content: { S: review.content },
+                  rating: { N: review.rating.toString() }
+                }
+              }
+            }))
           },
         },
         physicalResourceId: custom.PhysicalResourceId.of("moviesddbInitData"), //.of(Date.now().toString()),
       },
-      policy: custom.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: [moviesTable.tableArn, movieCastsTable.tableArn],  // Includes movie cast
-      }),
+      policy: custom.AwsCustomResourcePolicy.fromStatements([
+        new aws_iam.PolicyStatement({
+          actions: ["dynamodb:BatchWriteItem"],
+          resources: [
+            moviesTable.tableArn,
+            movieCastsTable.tableArn,
+            movieReviewTable.tableArn,
+          ],
+        })
+      ]),
     });
 
     const newMovieFn = new lambdanode.NodejsFunction(this, "AddMovieFn", {

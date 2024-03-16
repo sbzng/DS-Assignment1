@@ -34,3 +34,12 @@ export type MovieResponse = {
   data: Record<string, any>;
   cast?: Record<string, any>[];
 };
+
+
+export type MovieReview = {
+  movieId: number;
+  reviewerName: string;
+  content: string;
+  reviewDate: string;
+  rating: number;
+}
