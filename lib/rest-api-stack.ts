@@ -41,14 +41,14 @@ export class RestAPIStack extends cdk.Stack {
     const movieReviewsTable = new dynamodb.Table(this, "MovieReviewsTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "reviewerName", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reviewDate", type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       tableName: "MovieReviews",
     });
 
     movieReviewsTable.addLocalSecondaryIndex({
       indexName: "roleIx",
-      sortKey: { name: "reviewerName", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reviewDate", type: dynamodb.AttributeType.STRING },
     });
 
     // Functions 
@@ -172,6 +172,18 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    const getReviewByReviewerNameOrYearFn = new lambdanode.NodejsFunction(this, "GetReviewByReviewerNameOrYearFn", {
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_16_X,
+      entry: `${__dirname}/../lambdas/getMovieReviewsByReviewerNameOrYear.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        TABLE_NAME: movieReviewsTable.tableName,
+        REGION: "eu-west-1",
+      },
+    });
+
 
     // Permissions 
     moviesTable.grantReadData(getMovieByIdFn)
@@ -180,6 +192,7 @@ export class RestAPIStack extends cdk.Stack {
     movieCastsTable.grantReadData(getMovieCastMembersFn);
     movieReviewsTable.grantReadData(getMovieReviewsFn);
     movieReviewsTable.grantReadWriteData(addReviewFn);
+    movieReviewsTable.grantReadData(getReviewByReviewerNameOrYearFn);
 
 
     // REST API 
@@ -223,9 +236,12 @@ export class RestAPIStack extends cdk.Stack {
 
     const movieReviewsEndpoint = movieEndpoint.addResource("reviews");
     movieReviewsEndpoint.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
-    
+
     const reviewsEndpoint = moviesEndpoint.addResource("reviews");
     reviewsEndpoint.addMethod("POST", new apig.LambdaIntegration(addReviewFn, { proxy: true }));
+
+    const reviewsByParamEndpoint = movieReviewsEndpoint.addResource("{reviewerName}");
+    reviewsByParamEndpoint.addMethod("GET", new apig.LambdaIntegration(getReviewByReviewerNameOrYearFn, { proxy: true }));
 
   }
 }
