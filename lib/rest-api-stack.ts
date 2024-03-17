@@ -184,6 +184,16 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    const authorizerFn = new node.NodejsFunction(this, "AuthorizerFn", {
+      entry: `${__dirname}/../lambdas/auth/authorizer.ts`,
+    });
+
+    const requestAuthorizer = new apig.RequestAuthorizer(this, 'RequestAuthorizer', {
+      handler: authorizerFn,
+      identitySources: [apig.IdentitySource.header('cookie')],
+      resultsCacheTtl: cdk.Duration.seconds(0),
+    });
+
 
     // Permissions 
     moviesTable.grantReadData(getMovieByIdFn)
@@ -219,8 +229,11 @@ export class RestAPIStack extends cdk.Stack {
     // NEW
     moviesEndpoint.addMethod(
       "POST",
-      new apig.LambdaIntegration(newMovieFn, { proxy: true })
-    );
+      new apig.LambdaIntegration(newMovieFn, { proxy: true }),
+      {
+        authorizer: requestAuthorizer,
+        authorizationType: apig.AuthorizationType.CUSTOM,
+      });
 
     const movieEndpoint = moviesEndpoint.addResource("{movieId}");
     movieEndpoint.addMethod(
@@ -238,7 +251,11 @@ export class RestAPIStack extends cdk.Stack {
     movieReviewsEndpoint.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
 
     const reviewsEndpoint = moviesEndpoint.addResource("reviews");
-    reviewsEndpoint.addMethod("POST", new apig.LambdaIntegration(addReviewFn, { proxy: true }));
+    reviewsEndpoint.addMethod("POST", new apig.LambdaIntegration(addReviewFn, { proxy: true }),
+      {
+        authorizer: requestAuthorizer,
+        authorizationType: apig.AuthorizationType.CUSTOM,
+      });
 
     const reviewsByParamEndpoint = movieReviewsEndpoint.addResource("{reviewerName}");
     reviewsByParamEndpoint.addMethod("GET", new apig.LambdaIntegration(getReviewByReviewerNameOrYearFn, { proxy: true }));
