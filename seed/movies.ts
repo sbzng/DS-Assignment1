@@ -353,7 +353,7 @@ export const movieCasts: MovieCast[] = [
 
 export const movieReview: MovieReview[] = [
   {
-    movieId: 1,
+    movieId: 1234,
     reviewDate: '2023-03-15',
     reviewerName: 'Reviewer1',
     content: 'Great movie!',

@@ -38,15 +38,15 @@ export class RestAPIStack extends cdk.Stack {
       sortKey: { name: "roleName", type: dynamodb.AttributeType.STRING },
     });
 
-    const movieReviewTable = new dynamodb.Table(this, "MovieReviewTable", {
+    const movieReviewsTable = new dynamodb.Table(this, "MovieReviewsTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "reviewDate", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reviewerName", type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      tableName: "MovieReview",
+      tableName: "MovieReviews",
     });
 
-    movieReviewTable.addLocalSecondaryIndex({
+    movieReviewsTable.addLocalSecondaryIndex({
       indexName: "roleIx",
       sortKey: { name: "reviewerName", type: dynamodb.AttributeType.STRING },
     });
@@ -108,8 +108,8 @@ export class RestAPIStack extends cdk.Stack {
         parameters: {
           RequestItems: {
             [moviesTable.tableName]: generateBatch(movies),
-            [movieCastsTable.tableName]: generateBatch(movieCasts),  
-            [movieReviewTable.tableName]: movieReview.map(review => ({
+            [movieCastsTable.tableName]: generateBatch(movieCasts),
+            [movieReviewsTable.tableName]: movieReview.map(review => ({
               PutRequest: {
                 Item: {
                   movieId: { N: review.movieId.toString() },
@@ -130,7 +130,7 @@ export class RestAPIStack extends cdk.Stack {
           resources: [
             moviesTable.tableArn,
             movieCastsTable.tableArn,
-            movieReviewTable.tableArn,
+            movieReviewsTable.tableArn,
           ],
         })
       ]),
@@ -148,11 +148,25 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    const getMovieReviewsFn = new lambdanode.NodejsFunction(this, "GetMovieReviewsFn", {
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_18_X,
+      entry: `${__dirname}/../lambdas/getMovieReviews.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        TABLE_NAME: movieReviewsTable.tableName,
+        REGION: "eu-west-1",
+      },
+    });
+
+
     // Permissions 
     moviesTable.grantReadData(getMovieByIdFn)
     moviesTable.grantReadData(getAllMoviesFn)
     moviesTable.grantReadWriteData(newMovieFn)
     movieCastsTable.grantReadData(getMovieCastMembersFn);
+    movieReviewsTable.grantReadData(getMovieReviewsFn);
 
 
     // REST API 
@@ -169,6 +183,7 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    // Endpoints
     const moviesEndpoint = api.root.addResource("movies");
     moviesEndpoint.addMethod(
       "GET",
@@ -192,6 +207,9 @@ export class RestAPIStack extends cdk.Stack {
       "GET",
       new apig.LambdaIntegration(getMovieCastMembersFn, { proxy: true })
     );
+
+    const movieReviewsEndpoint = movieEndpoint.addResource("reviews");
+    movieReviewsEndpoint.addMethod("GET", new apig.LambdaIntegration(getMovieReviewsFn));
 
   }
 }
