@@ -206,6 +206,18 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    const updateReviewsFn = new lambdanode.NodejsFunction(this, "updateReviewsFn", {
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_16_X,
+      entry: `${__dirname}/../lambdas/updateReviews.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        TABLE_NAME: movieReviewsTable.tableName,
+        REGION: "eu-west-1",
+      },
+    });
+
 
     // Permissions 
     moviesTable.grantReadData(getMovieByIdFn)
@@ -216,6 +228,7 @@ export class RestAPIStack extends cdk.Stack {
     movieReviewsTable.grantReadWriteData(addReviewFn);
     movieReviewsTable.grantReadData(getReviewByReviewerNameOrYearFn);
     movieReviewsTable.grantReadData(getAllReviewsByUserNameFn)
+    movieReviewsTable.grantReadWriteData(updateReviewsFn)
 
 
     // REST API 
@@ -271,16 +284,26 @@ export class RestAPIStack extends cdk.Stack {
         authorizationType: apig.AuthorizationType.CUSTOM,
       });
 
-    const reviewsByParamEndpoint = movieReviewsEndpoint.addResource("{reviewerName}");
-    reviewsByParamEndpoint.addMethod("GET", new apig.LambdaIntegration(getReviewByReviewerNameOrYearFn, { proxy: true }));
+    const specificReviewEndpoint = movieReviewsEndpoint.addResource("{reviewerName}");
+    specificReviewEndpoint.addMethod("GET", new apig.LambdaIntegration(getReviewByReviewerNameOrYearFn, { proxy: true }));
 
-    const reviewsByUserNameEndpoint =reviewsEndpoint.addResource("{reviewerName}");
+    const reviewsByUserNameEndpoint = reviewsEndpoint.addResource("{reviewerName}");
     reviewsByUserNameEndpoint.addMethod(
       "GET",
-      new apig.LambdaIntegration(getAllReviewsByUserNameFn,{
+      new apig.LambdaIntegration(getAllReviewsByUserNameFn, {
         proxy: true,
       })
     )
+
+    specificReviewEndpoint.addMethod(
+      "PUT",
+      new apig.LambdaIntegration(updateReviewsFn, {
+        proxy: true,
+      })
+      , {
+        authorizer: requestAuthorizer,
+        authorizationType: apig.AuthorizationType.CUSTOM,
+      })
 
   }
 }
